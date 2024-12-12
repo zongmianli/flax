@@ -135,6 +135,7 @@ def dot_product_attention(
     deterministic: bool = False,
     dtype: Optional[Dtype] = None,
     precision: PrecisionLike = None,
+    return_attention: bool = False,
 ):
   """Computes dot-product attention given query, key, and value.
 
@@ -194,11 +195,16 @@ def dot_product_attention(
       precision,
   )
 
-  # return weighted sum over values for each query position
-  return jnp.einsum(
+  if return_attention:
+    assert deterministic
+    return attn_weights #jax.lax.stop_gradient(attn_weights)
+
+  # weighted sum over values for each query position
+  attn_res = jnp.einsum(
       '...hqk,...khd->...qhd', attn_weights, value, precision=precision
   )
 
+  return attn_res
 
 class MultiHeadDotProductAttention(Module):
   """Multi-head dot-product attention.
@@ -259,6 +265,7 @@ class MultiHeadDotProductAttention(Module):
       mask: Optional[Array] = None,
       deterministic: Optional[bool] = None,
       dropout_rng: Optional[PRNGKey] = None,
+      return_attention: bool = False,
   ):
     ...
 
@@ -271,6 +278,7 @@ class MultiHeadDotProductAttention(Module):
       mask: Optional[Array] = None,
       deterministic: Optional[bool] = None,
       dropout_rng: Optional[PRNGKey] = None,
+      return_attention: bool = False,
   ):
     ...
 
@@ -284,7 +292,8 @@ class MultiHeadDotProductAttention(Module):
       inputs_kv: Optional[Array] = None,
       mask: Optional[Array] = None,
       deterministic: Optional[bool] = None,
-      dropout_rng: Optional[PRNGKey] = None
+      dropout_rng: Optional[PRNGKey] = None,
+      return_attention: bool = False,
   ):
     """Applies multi-head dot product attention on the input data.
 
@@ -450,6 +459,10 @@ class MultiHeadDotProductAttention(Module):
     else:
       m_deterministic = True
 
+    # remove causal mask if return_attention is True
+    if return_attention:
+      mask = None
+
     # apply attention
     x = self.attention_fn(
         query,
@@ -462,7 +475,12 @@ class MultiHeadDotProductAttention(Module):
         deterministic=m_deterministic,
         dtype=self.dtype,
         precision=self.precision,
+        return_attention=return_attention,
     )  # pytype: disable=wrong-keyword-args
+
+    if return_attention:
+      return x # attn_weights
+
     # back to the original inputs dimensions
     out = DenseGeneral(
         features=features,
@@ -476,7 +494,7 @@ class MultiHeadDotProductAttention(Module):
         dot_general=self.out_dot_general,
         dot_general_cls=self.out_dot_general_cls,
         name='out',  # type: ignore[call-arg]
-    )(x)
+    )(x) # attn_res
     return out
 
 
